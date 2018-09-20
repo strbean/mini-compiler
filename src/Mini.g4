@@ -9,88 +9,88 @@ grammar Mini;
    Parser Rules
 */
 
-program
-   :  types declarations functions EOF
+rProgram
+   :  rTypes rDeclarations rFunctions EOF
    ;
-types
-   :  typeDeclaration*
+rTypes
+   :  rTypeDeclaration*
    |  
    ;
-typeDeclaration
-   :  'struct' ID '{' nestedDecl '}' ';'
+rTypeDeclaration
+   :  'struct' ID '{' rNestedDecl '}' ';'
    ;
-nestedDecl
-   :  (decl ';')+
+rNestedDecl
+   :  (rDecl ';')+
    ;
-decl
-   :  type ID
+rDecl
+   :  rType ID
    ;
-type
+rType
    :  'int'             # IntType
    |  'bool'            # BoolType
    |  'struct' ID       # StructType
    ;
-declarations
-   :  (declaration)*
+rDeclarations
+   :  (rDeclaration)*
    ;
-declaration
-   :  type ID (',' ID)* ';'
+rDeclaration
+   :  rType ID (',' ID)* ';'
    ;
-functions
-   :  function*
+rFunctions
+   :  rFunction*
    ;
-function
-   :  'fun' ID parameters returnType '{' declarations statementList '}'
+rFunction
+   :  'fun' ID rParameters rReturnType '{' rDeclarations rStatementList '}'
    ;
-parameters
-   :  '(' (decl (',' decl)*)? ')'
+rParameters
+   :  '(' (rDecl (',' rDecl)*)? ')'
    ;
-returnType
-   :  type           # ReturnTypeReal
+rReturnType
+   :  rType           # ReturnTypeReal
    |  'void'         # ReturnTypeVoid
    ;
-statement
-   :  block                                           # NestedBlock
-   |  lvalue '=' (expression | 'read') ';'            # Assignment
-   |  'print' expression ';'                          # Print
-   |  'print' expression 'endl' ';'                   # PrintLn
-   |  'if' '(' expression ')' thenBlock=block
-         ('else' elseBlock=block)?                    # Conditional
-   |  'while' '(' expression ')' block                # While
-   |  'delete' expression ';'                         # Delete
-   |  'return' (expression)? ';'                      # Return
-   |  ID '(' arguments ')' ';'                        # Invocation
+rStatement
+   :  rBlock                                           # NestedBlock
+   |  rLvalue '=' (rExpression | 'read') ';'            # Assignment
+   |  'print' rExpression ';'                          # Print
+   |  'print' rExpression 'endl' ';'                   # PrintLn
+   |  'if' '(' rExpression ')' thenBlock=rBlock
+         ('else' elseBlock=rBlock)?                    # Conditional
+   |  'while' '(' rExpression ')' rBlock                # While
+   |  'delete' rExpression ';'                         # Delete
+   |  'return' (rExpression)? ';'                      # Return
+   |  ID '(' rArguments ')' ';'                        # Invocation
    ;
-block
-   :  '{' statementList '}'
+rBlock
+   :  '{' rStatementList '}'
    ;
-statementList
-   :  statement*
+rStatementList
+   :  rStatement*
    ;
-lvalue
+rLvalue
    :  ID                                              # LvalueId
-   |  lvalue '.' ID                                   # LvalueDot
+   |  rLvalue '.' ID                                   # LvalueDot
    ;
-expression
-   :  ID '(' arguments ')'                               # InvocationExpr
-   |  expression ('.' ID)                                # DotExpr
-   |  op=('-' | '!') expression                          # UnaryExpr
-   |  lft=expression op=('*' | '/') rht=expression                # BinaryExpr
-   |  lft=expression op=('+' | '-') rht=expression                # BinaryExpr
-   |  lft=expression op=('<' | '>' | '<=' | '>=') rht=expression  # BinaryExpr
-   |  lft=expression op=('==' | '!=') rht=expression              # BinaryExpr
-   |  lft=expression op='&&' rht=expression                       # BinaryExpr
-   |  lft=expression op='||' rht=expression                       # BinaryExpr
+rExpression
+   :  ID '(' rArguments ')'                               # InvocationExpr
+   |  rExpression ('.' ID)                                # DotExpr
+   |  op=('-' | '!') rExpression                          # UnaryExpr
+   |  lft=rExpression op=('*' | '/') rht=rExpression                # BinaryExpr
+   |  lft=rExpression op=('+' | '-') rht=rExpression                # BinaryExpr
+   |  lft=rExpression op=('<' | '>' | '<=' | '>=') rht=rExpression  # BinaryExpr
+   |  lft=rExpression op=('==' | '!=') rht=rExpression              # BinaryExpr
+   |  lft=rExpression op='&&' rht=rExpression                       # BinaryExpr
+   |  lft=rExpression op='||' rht=rExpression                       # BinaryExpr
    |  ID                                                 # IdentifierExpr
    |  INTEGER                                            # IntegerExpr
    |  'true'                                             # TrueExpr
    |  'false'                                            # FalseExpr
    |  'new' ID                                           # NewExpr
    |  'null'                                             # NullExpr
-   |  '(' expression ')'                                 # NestedExpr
+   |  '(' rExpression ')'                                 # NestedExpr
    ;
-arguments
-   :  (expression (',' expression)*)?
+rArguments
+   :  (rExpression (',' rExpression)*)?
    ;
 
 /*
