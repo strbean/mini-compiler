@@ -1,0 +1,11 @@
+struct A
+{
+   int i;
+};
+
+fun main() int
+{
+   struct A a;
+   a.i = 2;
+   return a.i;
+}

@@ -1,0 +1,50 @@
+{
+    "types": [],
+    "declarations": [],
+    "functions": [{
+        "line": 1,
+        "id": "main",
+        "parameters": [],
+        "return_type": "int",
+        "declarations": [],
+        "body": [{
+            "line": 2,
+            "stmt": "return",
+            "exp": {
+                "line": 2,
+                "exp": "binary",
+                "operator": "*",
+                "lft": {
+                    "line": 2,
+                    "exp": "binary",
+                    "operator": "+",
+                    "lft": {
+                        "line": 2,
+                        "exp": "num",
+                        "value": "1"
+                    },
+                    "rht": {
+                        "line": 2,
+                        "exp": "num",
+                        "value": "2"
+                    }
+                },
+                "rht": {
+                    "line": 2,
+                    "exp": "binary",
+                    "operator": "+",
+                    "lft": {
+                        "line": 2,
+                        "exp": "num",
+                        "value": "3"
+                    },
+                    "rht": {
+                        "line": 2,
+                        "exp": "num",
+                        "value": "4"
+                    }
+                }
+            }
+        }]
+    }]
+}

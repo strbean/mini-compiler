@@ -1,0 +1,53 @@
+{
+    "types": [{
+        "line": 1,
+        "id": "A",
+        "fields": [{
+            "line": 3,
+            "type": "int",
+            "id": "i"
+        }]
+    }],
+    "declarations": [],
+    "functions": [{
+        "line": 6,
+        "id": "main",
+        "parameters": [],
+        "return_type": "int",
+        "declarations": [{
+            "line": 8,
+            "type": "A",
+            "id": "a"
+        }],
+        "body": [{
+            "line": 9,
+            "stmt": "assign",
+            "source": {
+                "line": 9,
+                "exp": "num",
+                "value": "2"
+            },
+            "target": {
+                "line": 9,
+                "left": {
+                    "line": 9,
+                    "id": "a"
+                },
+                "id": "i"
+            }
+        }, {
+            "line": 10,
+            "stmt": "return",
+            "exp": {
+                "line": 10,
+                "exp": "dot",
+                "left": {
+                    "line": 10,
+                    "exp": "id",
+                    "id": "a"
+                },
+                "id": "i"
+            }
+        }]
+    }]
+}
