@@ -13,9 +13,10 @@ function parse(inputstream) {
   const lexer = new Lexer(inputstream);
   const tokens  = new antlr4.CommonTokenStream(lexer);
   const parser = new Parser(tokens);
+  const visitor = new Visitor();
   parser.buildParseTrees = true;
   const tree = parser.rProgram();
-  return tree;
+  return visitor.visitRProgram(tree);
 }
 
 const parseFile = (filename) => parse(new antlr4.FileStream(filename));
@@ -32,7 +33,7 @@ if (require.main === module) {
   ref = JSON.parse(fs.readFileSync(referenceFile));
   ast = visitor.visitRProgram(tree);
 
-  console.log(util.inspect(diff.diff(ref, ast), { depth: null}));
+  // console.log(util.inspect(diff.diff(ref, ast), { depth: null}));
   fs.writeFileSync(outputFile, JSON.stringify(ast));
 }
 
