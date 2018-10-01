@@ -345,8 +345,9 @@ MiniVisitor.prototype.visitUnaryExpr = function(ctx) {
 
   return {
     line: ctx.start.line,
-    op: ctx.op.text,
-    exp: this.visit(ctx.rExpression())
+    exp: 'unary',
+    operator: ctx.op.text,
+    operand: this.visit(ctx.rExpression())
   };
 };
 
