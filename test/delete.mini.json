@@ -1,0 +1,44 @@
+{
+    "types": [{
+        "line": 1,
+        "id": "A",
+        "fields": [{
+            "line": 3,
+            "type": "int",
+            "id": "i"
+        }]
+    }],
+    "declarations": [],
+    "functions": [{
+        "line": 6,
+        "id": "main",
+        "parameters": [],
+        "return_type": "int",
+        "declarations": [{
+            "line": 8,
+            "type": "A",
+            "id": "a"
+        }],
+        "body": [{
+            "line": 9,
+            "stmt": "assign",
+            "source": {
+                "line": 9,
+                "exp": "new",
+                "id": "A"
+            },
+            "target": {
+                "line": 9,
+                "id": "a"
+            }
+        }, {
+            "line": 10,
+            "stmt": "delete",
+            "exp": {
+                "line": 10,
+                "exp": "id",
+                "id": "a"
+            }
+        }]
+    }]
+}

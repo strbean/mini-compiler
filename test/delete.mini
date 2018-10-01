@@ -1,0 +1,12 @@
+struct A
+{
+   int i;
+};
+
+fun main() int      # control flow case
+{
+   struct A a;
+   a = new A;
+   delete a;
+}
+

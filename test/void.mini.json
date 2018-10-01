@@ -1,0 +1,49 @@
+{
+    "types": [],
+    "declarations": [],
+    "functions": [{
+        "line": 1,
+        "id": "foo",
+        "parameters": [{
+            "line": 1,
+            "type": "int",
+            "id": "i"
+        }],
+        "return_type": "void",
+        "declarations": [],
+        "body": [{
+            "line": 3,
+            "stmt": "print",
+            "exp": {
+                "line": 3,
+                "exp": "id",
+                "id": "i"
+            },
+            "endl": false
+        }]
+    }, {
+        "line": 6,
+        "id": "main",
+        "parameters": [],
+        "return_type": "int",
+        "declarations": [],
+        "body": [{
+            "line": 8,
+            "stmt": "invocation",
+            "id": "foo",
+            "args": [{
+                "line": 8,
+                "exp": "num",
+                "value": "1"
+            }]
+        }, {
+            "line": 9,
+            "stmt": "return",
+            "exp": {
+                "line": 9,
+                "exp": "num",
+                "value": "0"
+            }
+        }]
+    }]
+}
