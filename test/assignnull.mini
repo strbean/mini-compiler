@@ -1,0 +1,40 @@
+struct A
+{
+   int i;
+   int j1;
+   bool b;
+   struct A a;
+};
+struct B
+{
+   struct A a;
+};
+
+int i, j, k;
+struct B b, bb, bbb;
+bool bob;
+
+fun main() int
+{
+   struct A a;
+   struct B b;
+   a = null;                         # assign null to struct var
+   if (a == null)                    # compare struct var to null
+   {
+      print 1 endl;
+   }
+   else
+   {
+      b.a = null;                   # assign null to struct field
+   }
+   if (b.a != null) {               # compare struct-typed field to null
+      a.a = null;
+   }
+
+   i = null;                         # fail, assign null to int var
+   a.i = null;                       # fail, assign null to int field
+   if (i == null && a.i != null) {   # fail twice, comparing int var and int field to null
+      print -100;
+   }
+   return 0;
+}

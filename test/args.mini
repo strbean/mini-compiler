@@ -1,0 +1,26 @@
+fun fn1(int i, bool b) int
+{
+   return i;
+}
+
+fun fn2(int i) int {
+  return 2;
+}
+
+fun fn3(int i, int j, int k) int {
+  return 3;
+}
+
+fun main() int
+{
+  fn1(false, 1);    # wrong type arguments
+  fn2(1, 2, 3);     # too many arguments
+  fn3(0);           # too few arguments
+
+  # all the above, in expressions rather than invocation statements
+  print 1+fn1(false, 1);
+  print 2+fn2(1, 2, 3);
+  print 3+fn3(0);
+
+  return 0;
+}

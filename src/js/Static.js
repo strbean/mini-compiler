@@ -29,7 +29,15 @@ const binaryOperatorReturns = {
 function TypeChecker(opts) {
   this.opts = opts;
   this.errs = [];
+  this.warnings = [];
 }
+
+TypeChecker.prototype.warn = function warn(name, text) {
+  if (this.opts.Wall || this.parent.opts.Wall || this.opts[name] || this.opts.parent[name]) {
+    this.warnings.push(text);
+  }
+}
+
 TypeChecker.prototype.check = function check(ast) {
   let ns = {
     globals: {},
@@ -122,6 +130,9 @@ TypeChecker.prototype.checkStatement = function checkStatement(statement, return
 
 TypeChecker.prototype.checkExpression = function checkExpression(expression, ns) {
   let { line, exp } = expression;
+  if (exp === 'read') {
+    return 'int';
+  }
   if (!(expressionRules.includes(exp))) {
     throw new Error(`${line}: (PARSER ERROR) Unknown expression type: ${exp}`);
   }
@@ -149,7 +160,7 @@ TypeChecker.prototype.checkif = function checkif(statement, return_type, ns) {
 TypeChecker.prototype.checkwhile = function checkwhile(statement, return_type, ns) {
   let { guard, body } = statement;
   this.checkGuard(guard, ns);
-  this.checkStatement(body);
+  this.checkStatement(body, return_type, ns);
 };
 
 TypeChecker.prototype.checkblock = function checkblock({ list }, return_type, ns) {
@@ -192,7 +203,7 @@ TypeChecker.prototype.checkTarget = function checkTarget({line, id, left}, ns) {
 
 TypeChecker.prototype.checkassign = function checkassign({ line, target, source }, return_type, ns) {
   let leftType = this.checkTarget(target, ns);
-  let sourceType = this.checkExpression(source);
+  let sourceType = this.checkExpression(source, ns);
   if (leftType !== sourceType && (nativeTypes.includes(leftType) || sourceType !== 'null')) {
     this.errs.push(`${line}: Attempt to assign value with type ${sourceType} to field/variable with type ${leftType}`);
   }
@@ -221,11 +232,15 @@ TypeChecker.prototype.checkinvocation = function checkinvocation({line, id, args
     return func.return_type;
   }
   if (args.length > parameters.length) {
-    this.errs.push(`${line}: Too many arguments for '${id}()' (only got ${args.length}, expected ${parameters.length})`);
+    this.errs.push(`${line}: Too many arguments for '${id}()' (got ${args.length}, only expected ${parameters.length})`);
     return func.return_type;
   }
   for (let i = 0; i < args.length; i++) {
-    // TODO
+    let argType = this.checkExpression(args[i], ns);
+    let paramType = parameters[i].type;
+    if (paramType !== argType && !(!nativeTypes.includes(paramType) && argType === 'null')) {
+      this.errs.push(`${line}: Invocation of ${id}(): Incorrect type for argument ${i+1} (got ${argType}, expected ${paramType})`);
+    }
   }
   return func.return_type;
 };
@@ -282,9 +297,15 @@ TypeChecker.prototype.checkbinary = function checkbinary({line, operator, lft, r
   if (binaryOperatorAccepts.bool.includes(operator) && (lftType !== 'bool' || rhtType !== 'bool')) {
     this.errs.push(`${line}: Binary operator '${operator}' expects (bool, bool), got (${lftType},${rhtType})`);
   }
-  if (binaryOperatorAccepts.any.includes(operator) && (lftType !== rhtType)) {
-    // TODO: accommodate 'null' in comparisons with structs
-    this.errs.push(`${line}: Binary operator expects operands of matching type, got (${lftType},${rhtType})`);
+  if (binaryOperatorAccepts.any.includes(operator)) {
+    if (lftType === 'bool' && rhtType === 'bool') {
+      this.warn('WbooleanComparison', `${line}: Applying operator '${operator}' to boolean values, use '&&' instead`);
+    }
+    if (lftType !== rhtType) {
+      if (!((lftType === 'null' && !nativeTypes.includes(rhtType)) || (rhtType === 'null' && !nativeTypes.includes(lftType))) ) {
+        this.errs.push(`${line}: Binary operator expects operands of matching type, got (${lftType},${rhtType})`);
+      }
+    }
   }
   // TODO: ban booleans from equality operations?
   return binaryOperatorReturns[operator];

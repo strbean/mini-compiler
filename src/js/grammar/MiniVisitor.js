@@ -141,7 +141,7 @@ MiniVisitor.prototype.visitAssignment = function(ctx) {
   return {
     line: ctx.start.line,
     stmt: 'assign',
-    source: this.visit(ctx.rExpression()),
+    source: ctx.rExpression() ? this.visit(ctx.rExpression()) : {exp: 'read'},
     target: this.visit(ctx.rLvalue())
   };
 };
@@ -252,6 +252,8 @@ MiniVisitor.prototype.visitRStatementList = function(ctx) {
 MiniVisitor.prototype.visitLvalueId = function(ctx) {
   return {
     line: ctx.start.line,
+    // make Lvalues act like expressions
+    exp: 'id',
     id: ctx.ID().getText()
   };
 };
@@ -261,6 +263,8 @@ MiniVisitor.prototype.visitLvalueId = function(ctx) {
 MiniVisitor.prototype.visitLvalueDot = function(ctx) {
   return {
     line: ctx.start.line,
+    // make Lvalues act like expressions
+    exp: 'dot',
     left: this.visit(ctx.rLvalue()),
     id: ctx.ID().getText()
   };
