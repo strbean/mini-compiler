@@ -1,0 +1,56 @@
+struct node
+{
+   int data;
+   struct node next;
+};
+
+struct tnode
+{
+   int data;
+   struct tnode left;
+   struct tnode right;
+};
+
+struct i
+{
+   int i;
+};
+
+struct myCopy
+{
+   bool b;
+};
+
+int a,b;
+struct i i;
+
+fun treeadd(struct tnode root, int toAdd) struct tnode
+{
+   struct tnode temp;
+
+   if(root == null)
+   {
+      temp = new tnode;
+      temp.data = toAdd;
+      temp.left = null;
+      temp.right = null;
+      return temp;
+   }
+
+   if (toAdd < root.data)
+   {
+      root.left = treeadd(root.left, toAdd);
+   }
+   else
+   {
+      root.right = treeadd(root.right, toAdd);
+   }
+
+   return root;
+}
+
+
+fun main() int
+{
+   return 0;
+}

@@ -1,0 +1,85 @@
+struct A
+{
+   int i;
+};
+
+fun main() int
+{
+   struct A a;
+   a = new A;
+   if (a == null)
+   {
+       print 0;
+   }
+   else
+   {
+       print 1;
+   }
+
+   if (null == a)
+   {
+       print 0;
+   }
+   else
+   {
+       print 1;
+   }
+
+   if (a != null)
+   {
+       print 1;
+   }
+   else
+   {
+       print 0;
+   }
+
+   if (null != a)
+   {
+       print 1;
+   }
+   else
+   {
+       print 0;
+   }
+
+   a = null;
+
+   if (a == null)
+   {
+       print 1;
+   }
+   else
+   {
+       print 0;
+   }
+
+   if (null == a)
+   {
+       print 1;
+   }
+   else
+   {
+       print 0;
+   }
+
+   if (a != null)
+   {
+       print 0;
+   }
+   else
+   {
+       print 1;
+   }
+
+   if (null != a)
+   {
+       print 0;
+   }
+   else
+   {
+       print 1;
+   }
+
+   return 0;
+}

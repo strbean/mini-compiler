@@ -36,7 +36,7 @@ TypeChecker.prototype.warn = function warn(name, text) {
   if (this.opts.Wall || this.parent.opts.Wall || this.opts[name] || this.opts.parent[name]) {
     this.warnings.push(text);
   }
-}
+};
 
 TypeChecker.prototype.check = function check(ast) {
   let ns = {
@@ -177,7 +177,9 @@ TypeChecker.prototype.checkprint = function checkprint({ exp, line }, return_typ
 TypeChecker.prototype.checkreturn = function checkreturn({ line, exp }, return_type, ns) {
   let expType = exp ? this.checkExpression(exp, ns) : 'void';
   if (expType !== return_type) {
-    this.errs.push(`${line}: Incorrect return type (got '${expType}', expected '${return_type}')`);
+    if (nativeTypes.includes(return_type) || expType !== 'null') {
+      this.errs.push(`${line}: Incorrect return type (got '${expType}', expected '${return_type}')`);
+    }
   }
 };
 
@@ -327,7 +329,8 @@ TypeChecker.prototype.checknew = function checknew({line, id}, ns) {
     return;
   }
   return id;
-}
+};
+
 TypeChecker.prototype.checknull = () => 'null';
 
 function ReturnChecker(opts) {

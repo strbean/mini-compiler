@@ -4,35 +4,7 @@
 
 const _util = require('./util');
 const { Register, Immediate } = require('./Register');
-
-/*eslint-disable no-unused-vars*/
-const {
-  AddInstruction,
-  MulInstruction,
-  SDivInstruction,
-  SubInstruction,
-  AndInstruction,
-  OrInstruction,
-  XorInstruction,
-  CmpInstruction,
-  BranchInstruction,
-  CBranchInstruction,
-  LoadInstruction,
-  StoreInstruction,
-  GEPInstruction,
-  CallInstruction,
-  CallReadInstruction,
-  CallPrintInstruction,
-  RetInstruction,
-  AllocaInstruction,
-  CastInstruction,
-  BitCastInstruction,
-  TruncInstruction,
-  ZExtInstruction,
-  PhiInstruction,
-} = require('./Instruction');
-/*eslint-enable no-unused-vars*/
-
+const I = require('./Instruction');
 let blockCount = 0;
 
 function cleanBlockList(blockList) {
@@ -113,13 +85,12 @@ function CFG(opts) {
 
 CFG.prototype.generate = function generate(ast) {
   const symbols = _util.buildSymbolDicts(ast);
-  const cfgs = {
+  return {
     types: ast.types,
     declarations: ast.declarations,
-    functions: ast.functions.map(func => this.visitFunction(func, symbols)),
+    functions: ast.functions.map(func => this.visitFunction(func)),
     symbols
   };
-  return cfgs;
 };
 
 CFG.prototype.visitFunction = function visitFunction({ id, parameters, declarations, body, return_type }) {
@@ -206,6 +177,7 @@ CFG.prototype.visitblock = function visitblock({ list }, predecessor, successor)
 };
 
 const LLVM = function LLVM(opts) {
+  I.configure(opts);
   this.opts = opts;
   this.stackBased = opts.stack || opts.parent.stack;
   this.registerIndex = 0;
@@ -254,13 +226,13 @@ LLVM.prototype.readVar = function readVar(id, block) {
       return block.localMapping[id];
     } else {
       const phiRegister = this.getRegister(LLVM.typeString(localVarTy));
-      block.phis.push(new PhiInstruction(block, phiRegister, id));
+      block.phis.push(new I.PhiInstruction(block, phiRegister, id));
       block.localMapping[id] = phiRegister;
       return phiRegister;
     }
   }
   else if (id in this._symbols.globals) {
-    return new Register(LLVM.typeString(this._symbols.globals[id]), LLVM.globalName(id));
+    return this.getGlobal(id);
   } else {
     throw new Error(`Could not resolve identifier ${id}`);
   }
@@ -270,7 +242,7 @@ LLVM.prototype.writeVar = function writeVar(id, register, block) {
   if (this.isLocalVar(id)) {
     block.localMapping[id] = register;
   } else if (id in this._symbols.globals) {
-    return new Register(LLVM.typeString(this._symbols.globals[id]), LLVM.globalName(id));
+    return this.getGlobal(id);
   } else {
     throw new Error(`Could not resolve identifier ${id}`);
   }
@@ -281,7 +253,7 @@ LLVM.getIncompletePhis = blockList => LLVM.getPhis(blockList).filter(phi => !phi
 LLVM.getTrivialPhis = blockList => LLVM.getPhis(blockList).filter(phi => LLVM.isTrivialPhi(phi));
 LLVM.isTrivialPhi = ({ incoming, dest }) =>
   incoming.length < 2
-  || incoming.every(({register}) => register.name === incoming[0].register.name)
+  || incoming.every(({register}) => `${register}` === `${incoming[0].register}`)
   || incoming.some(({register}) => register.name === dest.name);
 
 
@@ -296,13 +268,21 @@ LLVM.prototype.completePhis = function completePhis() {
         throw new Error('Found phi in block with no predecessors');
       } else if (block.predecessors.length === 1) {
         let pred = block.predecessors[0];
-        phi.incoming.push({ register: this.readVar(id, pred), label: pred.label });
+        let predVal = { register: this.readVar(id, pred), label: pred.label };
+        if (predVal.register.type === 'null') {
+          predVal.register.type = phi.dest.type;
+        }
+        phi.push(predVal);
         phi.complete = true;
       } else {
         for (const pred of block.predecessors) {
-          phi.incoming.push({ register: this.readVar(id, pred), label: pred.label });
-          phi.complete = true;
+          let predVal = { register: this.readVar(id, pred), label: pred.label };
+          if (predVal.register.type === 'null') {
+            predVal.register.type = phi.dest.type;
+          }
+          phi.push(predVal);
         }
+        phi.complete = true;
       }
     }
     incompletePhis = LLVM.getIncompletePhis(this._cfg.blockList);
@@ -313,28 +293,18 @@ LLVM.prototype.removeTrivialPhis = function removeTrivialPhis() {
   //return;
   let blockList = this._cfg.blockList;
   let trivialPhis = LLVM.getTrivialPhis(blockList);
-  let registerObjects = [];
-  for (const phi of LLVM.getPhis(blockList)) {
-    for (const { register } of phi.incoming) {
-      if (!registerObjects.includes(register)) {
-        registerObjects.push(register);
-      }
-    }
-    if (!registerObjects.includes(phi.dest)) {
-      registerObjects.push(phi.dest);
-    }
-  }
+
   while (trivialPhis.length) {
     for (const phi of trivialPhis) {
-      // This is truly awful, we end up with Register objects where the 'name' field is just an immediate value
-      const oldName = phi.dest.name;
-      const newName = phi.incoming[0].register.name === undefined ?  phi.incoming[0].register.value : phi.incoming[0].register.name;
-      for (const register of registerObjects) {
-        if (register.name === oldName) {
-          register.name = newName;
+      for (const instr of phi.dest.used) {
+        instr.rewriteRegister(phi.dest, phi.incoming[0].register);
+      }
+
+      for (const {register} of phi.incoming) {
+        if (register instanceof Register) {
+          register.used = register.used.filter(instr => instr != phi);
         }
       }
-      phi.dest.name = newName;
       phi.block.phis.splice(phi.block.phis.findIndex(_phi => phi === _phi), 1);
     }
     trivialPhis = LLVM.getTrivialPhis(this._cfg.blockList);
@@ -346,8 +316,57 @@ LLVM.prototype.getRegister = function getRegister(type) {
   return new Register(type, `%r${this.registerIndex++}`);
 };
 
+LLVM.prototype.getGlobal = function getGlobal(name) {
+  const { globals } = this._symbols;
+  if (name in this._globalRegisters) {
+    return this._globalRegisters[name];
+  } else {
+    const register = new Register(LLVM.typeString(globals[name]), LLVM.globalName(name));
+    this._globalRegisters[name] = register;
+    return register;
+  }
+};
+
+LLVM.prototype.getParameter = function getParameter(name) {
+  if (name in this._cfg._parameterRegisters) {
+    return this._cfg._parameterRegisters[name];
+  } else {
+    const {type} = this._cfg.parameters.find(p => p.id === name);
+    const register = new Register(LLVM.typeString(type), LLVM.parameterName(name));
+    this._cfg._parameterRegisters[name] = register;
+    return register;
+  }
+};
+
+LLVM.prototype.getStackParameter = function getStackParameter(name) {
+  if (name in this._cfg._stackParameterRegisters) {
+    return this._cfg._stackParameterRegisters[name];
+  } else {
+    const {type} = this._cfg.parameters.find(p => p.id === name);
+    const register = new Register(LLVM.typeString(type), LLVM.parameterStackName(name));
+    this._cfg._stackParameterRegisters[name] = register;
+    return register;
+  }
+};
+
+LLVM.prototype.getVariable = function getVariable(name) {
+  if (name in this._cfg._variableRegisters) {
+    return this._cfg._variableRegisters[name];
+  } else {
+    const {type} = this._cfg.declarations.find(d => d.id === name);
+    const register = new Register(LLVM.typeString(type), LLVM.variableStackName(name));
+    this._cfg._variableRegisters[name] = register;
+    return register;
+  }
+};
+
+LLVM.prototype.getReturn = function getReturn() {
+  return this._cfg._returnRegister;
+};
+
 LLVM.prototype.generate = function generate({types, declarations, functions, symbols}) {
   this._symbols = symbols;
+  this._globalRegisters = {};
   let opts = this.opts;
   return {
     types: this.generateTypes(types),
@@ -379,7 +398,7 @@ LLVM.prototype.generateTypes = function generateTypes(types) {
 LLVM.prototype.generateDeclarations = function generateDeclarations(declarations) {
   const _globals = [];
   for (const {id, type} of declarations) {
-    let ty = LLVM.typeString(type)
+    let ty = LLVM.typeString(type);
     _globals.push(`${LLVM.globalName(id)} = common global ${ty}${ty.includes('*') ? ' null' : ' 0'}, align 8`);
   }
   return _globals;
@@ -389,6 +408,10 @@ LLVM.prototype.generateDeclarations = function generateDeclarations(declarations
 LLVM.prototype.generateFunctions = function generateFunctions(cfgs) {
   for (const cfg of cfgs) {
     cfg.toString = functionToString;
+    cfg._parameterRegisters = {};
+    cfg._stackParameterRegisters = {};
+    cfg._variableRegisters = {};
+    cfg._returnRegister = new Register(LLVM.typeString(cfg.return_type), LLVM.returnStackName());
     this.generateIR(this._cfg = cfg);
   }
   return cfgs;
@@ -408,8 +431,8 @@ LLVM.prototype.generateIR = function generateIR(cfg) {
   }
   if (lastRegularBlock) {
     const lastInstruction = lastRegularBlock.ll[lastRegularBlock.ll.length - 1];
-    if (!(lastInstruction instanceof BranchInstruction)) {
-      lastRegularBlock.ll.push(new BranchInstruction(lastRegularBlock, cfg.exit.label));
+    if (!(lastInstruction instanceof I.BranchInstruction)) {
+      lastRegularBlock.ll.push(new I.BranchInstruction(lastRegularBlock, cfg.exit.label));
     }
   }
   this.visitExit(cfg);
@@ -426,33 +449,35 @@ LLVM.prototype.visitEntry = function visitEntry({parameters, declarations, retur
   if (this.stackBased) {
     /* allocate return value on stack */
     if (return_type !== 'void') {
-      ll.push(new AllocaInstruction(entry, LLVM.returnStackName(), LLVM.typeString(return_type)));
+      ll.push(new I.AllocaInstruction(entry, this.getReturn()));
     }
 
-    for (const {id, type} of parameters) {
-      ll.push(new AllocaInstruction(entry, LLVM.parameterStackName(id), LLVM.typeString(type)));
+    for (const {id} of parameters) {
+      ll.push(new I.AllocaInstruction(entry, this.getStackParameter(id)));
     }
 
-    for (const {id, type} of declarations) {
-      ll.push(new AllocaInstruction(entry, LLVM.variableStackName(id), LLVM.typeString(type)));
+    for (const {id} of declarations) {
+      ll.push(new I.AllocaInstruction(entry, this.getVariable(id)));
     }
 
-    for (const {id, type} of parameters) {
-      ll.push(new StoreInstruction(entry,
-        new Register(LLVM.typeString(type), LLVM.parameterName(id)),
-        new Register(LLVM.typeString(type), LLVM.parameterStackName(id))));
+    for (const {id} of parameters) {
+      ll.push(new I.StoreInstruction(entry,
+        this.getParameter(id),
+        this.getStackParameter(id)));
     }
   } else {
     let localMapping = entry.localMapping = {};
-    for (const {id, type} of parameters) {
-      localMapping[id] = new Register(LLVM.typeString(type), LLVM.parameterName(id));
+    for (const {id} of parameters) {
+      localMapping[id] = this.getParameter(id);
     }
-    for (const {id, type} of declarations) {
-      localMapping[id] = new Register(LLVM.typeString(type), LLVM.variableStackName(id));
+    for (const {id} of declarations) {
+      localMapping[id] = this.getVariable(id);
     }
   }
 
-  ll.push(new BranchInstruction(entry, entry.successors[0].label));
+  if (entry.successors.length) {
+    ll.push(new I.BranchInstruction(entry, entry.successors[0]));
+  }
 };
 
 LLVM.prototype.visitBlock = function visitBlock(block) {
@@ -461,25 +486,28 @@ LLVM.prototype.visitBlock = function visitBlock(block) {
   block.phis = [];
   this.visitStatements(block.body, block);
   /* add branch to fall-through blocks */
-  if (!(block.ll[block.ll.length-1] instanceof BranchInstruction)) {
-    block.ll.push(new BranchInstruction(block, block.successors[0].label));
+  if (!(block.ll[block.ll.length-1] instanceof I.BranchInstruction)) {
+    block.ll.push(new I.BranchInstruction(block, block.successors[0]));
   }
 };
 
-LLVM.prototype.visitExit = function visitExit({parameters, declarations, return_type, exit}) {
+LLVM.prototype.visitExit = function visitExit({return_type, exit}) {
   let ll = exit.ll = [];
   let phis = exit.phis = [];
 
   if (return_type !== 'void') {
-    const retVal = this.getRegister(LLVM.typeString(return_type));
+    let retVal;
     if (this.stackBased) {
-      ll.push(new LoadInstruction(exit, retVal, LLVM.returnStackName()));
+      let ret = this.getReturn();
+      retVal = this.getRegister(ret.type);
+      ll.push(new I.LoadInstruction(exit, retVal, ret));
     } else {
-      phis.push(new PhiInstruction(exit, retVal, LLVM.returnStackName()));
+      retVal = this.getReturn();
+      phis.push(new I.PhiInstruction(exit, retVal, LLVM.returnStackName()));
     }
-    ll.push(new RetInstruction(exit, retVal));
+    ll.push(new I.RetInstruction(exit, retVal));
   } else {
-    ll.push(new RetInstruction(exit));
+    ll.push(new I.RetInstruction(exit));
   }
 };
 
@@ -496,136 +524,73 @@ LLVM.prototype.visitif = LLVM.prototype.visitwhile = function visitif({guard}, b
   let guardVal = this.visitExpression(guard, block);
   if (guardVal.type !== 'i1') {
     let branchVal = this.getRegister('i1');
-    block.ll.push(new TruncInstruction(block, branchVal, guardVal));
-    block.ll.push(new CBranchInstruction(block, branchVal, block.successors[0].label, block.successors[1].label));
+    block.ll.push(new I.TruncInstruction(block, branchVal, guardVal));
+    block.ll.push(new I.CBranchInstruction(block, branchVal, block.successors[0], block.successors[1]));
   } else {
-    block.ll.push(new CBranchInstruction(block, guardVal, block.successors[0].label, block.successors[1].label));
+    block.ll.push(new I.CBranchInstruction(block, guardVal, block.successors[0], block.successors[1]));
   }
 };
-
-/*
-LLVM.prototype.visitwhile = function visitwhile({guard}, block) {
-  let guardVal = this.visitExpression(guard, block);
-  let branchVal = this.getRegister('i1');
-  block.ll.push(new TruncInstruction(branchVal, 'i32', guardVal, 'i1'));
-  block.ll.push(new CBranchInstruction(branchVal, block.successors[0].label, block.successors[1].label));
-};
-*/
 
 /* wait... these probably don't exist now. */
 LLVM.prototype.visitblock = function visitblock({list}, block) {
   this.visitStatements(list, block);
 };
 
-LLVM.prototype.visitprint = function visitprint({line, exp, endl}, block) {
+LLVM.prototype.visitprint = function visitprint({exp, endl}, block) {
   const expVal = this.visitExpression(exp, block);
-  block.ll.push(new CallPrintInstruction(block, expVal, endl));
+  block.ll.push(new I.CallPrintInstruction(block, expVal, endl));
 };
 
 LLVM.prototype.visitreturn = function visitreturn({exp}, block) {
   if (exp) {
     const retVal = this.visitExpression(exp, block);
     if (this.stackBased) {
-      block.ll.push(new StoreInstruction(block, retVal, new Register(LLVM.typeString(this._cfg.return_type), LLVM.returnStackName())));
+      block.ll.push(new I.StoreInstruction(block, retVal, new Register(LLVM.typeString(this._cfg.return_type), LLVM.returnStackName())));
     } else {
       this.writeVar(LLVM.returnStackName(), retVal, block);
     }
   }
-  block.ll.push(new BranchInstruction(block, this._cfg.exit.label));
-};
-
-LLVM.prototype.visitTarget = function visitTarget({id, left}, block) {
-  if (this.stackBased) {
-    const {parameters, declarations} = this._cfg;
-    const {globals} = this._symbols;
-
-    let ty, pointer;
-    if (left) {
-      const leftVal = this.visitTarget(left, block);
-      const structName = LLVM.typeToStruct(leftVal.type);
-      const {type, index} = this._symbols.structs[structName][id];
-      const leftValReg = this.getRegister(LLVM.typeString(structName));
-      block.ll.push(new LoadInstruction(block, leftValReg, leftVal));
-      const ptrVal = this.getRegister(LLVM.typeString(type));
-      block.ll.push(new GEPInstruction(block, ptrVal, leftValReg, index));
-      return ptrVal;
-    } else {
-      if (ty = parameters.find(param => param.id === id)) {
-        ty = LLVM.typeString(ty.type);
-        pointer = LLVM.parameterStackName(id);
-      } else if (ty = declarations.find(decl => decl.id === id)) {
-        ty = LLVM.typeString(ty.type);
-        pointer = LLVM.variableStackName(id);
-      } else if (id in globals) {
-        ty = LLVM.typeString(globals[id]);
-        pointer = LLVM.globalName(id);
-      } else {
-        throw new Error(`Could not resolve symbol ${id}`);
-      }
-    }
-    return new Register(ty, pointer);
-  } else {
-    if (left) {
-      const leftVal = this.visitTarget(left, block);
-      const structName = LLVM.typeToStruct(leftVal.type);
-      const {type, index} = this._symbols.structs[structName][id];
-      if (leftVal._root) {
-        delete leftVal['_root'];
-        const ptrVal = this.getRegister(LLVM.typeString(type));
-        block.ll.push(new GEPInstruction(block, ptrVal, leftVal, index));
-        return ptrVal;
-      } else {
-        const leftValReg = this.getRegister(LLVM.typeString(structName));
-        block.ll.push(new LoadInstruction(block, leftValReg, leftVal));
-        const ptrVal = this.getRegister(LLVM.typeString(type));
-        block.ll.push(new GEPInstruction(block, ptrVal, leftValReg, index));
-        return ptrVal;
-      }
-    } else {
-      if (this.isLocalVar(id)) {
-        const varReg = this.readVar(id, block);
-        varReg._root = true;
-        return varReg;
-      } else {
-        return this.readVar(id, block);
-      }
-    }
-  }
+  block.ll.push(new I.BranchInstruction(block, this._cfg.exit));
 };
 
 LLVM.prototype.visitassign = function visitassign({source, target}, block) {
-  if (this.stackBased || target.left) {
-    if (source.exp === 'read') {
-      const destPtr = this.visitTarget(target, block);
-      block.ll.push(new CallReadInstruction(block, destPtr));
+  let destPtr;
+  const {id, left} = target;
+
+  // Determine destination; leave undefined if we will just 'writeVar' it.
+  if (left) {
+    const structPtr = this.visitExpression(left, block);
+    const {type, index} = this._symbols.structs[LLVM.typeToStruct(structPtr.type)][id];
+    destPtr = this.getRegister(LLVM.typeString(type));
+    block.ll.push(new I.GEPInstruction(block, destPtr, structPtr, index));
+  } else if(!this.isLocalVar(id)) {
+    destPtr = this.getGlobal(id);
+  } else if(this.stackBased) {
+    let {parameters, declarations} = this._cfg;
+    if (parameters.find(param => param.id === id)) {
+      destPtr = this.getStackParameter(id);
+    } else if (declarations.find(decl => decl.id === id)) {
+      destPtr = this.getVariable(id);
+    }
+  }
+
+  // Get source value / perform read, store to destination / writeVal
+  if (source.exp === 'read') {
+    if (destPtr) {
+      block.ll.push(new I.CallReadInstruction(block, destPtr));
     } else {
-      const sourceVal = this.visitExpression(source, block);
-      const destPtr = this.visitTarget(target, block);
-      block.ll.push(new StoreInstruction(block, sourceVal, destPtr));
+      const scratch = new Register('i32*', '@.read_scratch');
+      block.ll.push(new I.CallReadInstruction(block, scratch));
+      destPtr = this.getRegister('i32');
+      block.ll.push(new I.LoadInstruction(block, destPtr, scratch));
+      this.writeVar(id, destPtr, block);
     }
   } else {
-    const {id} = target;
-    if (source.exp === 'read') {
-      if (this.isLocalVar(id)) {
-        const currentReg = this.readVar(id, block);
-        const dest = this.getRegister(currentReg.type);
-        const scratch = new Register('i32*', '@.read_scratch');
-        block.ll.push(new CallReadInstruction(block, scratch));
-        block.ll.push(new LoadInstruction(block, dest, scratch));
-        this.writeVar(id, dest, block);
-      } else {
-        const dest = this.readVar(id, block);
-        block.ll.push(new CallReadInstruction(block, dest));
-      }
+    const sourceVal = this.visitExpression(source, block);
+    if (destPtr) {
+      block.ll.push(new I.StoreInstruction(block, sourceVal, destPtr));
     } else {
-      if (this.isLocalVar(id)) {
-        const sourceVal = this.visitExpression(source, block);
-        this.writeVar(id, sourceVal, block);
-      } else {
-        const sourceVal = this.visitExpression(source, block);
-        const dest = this.readVar(id, block);
-        block.ll.push(new StoreInstruction(block, sourceVal, dest));
-      }
+      this.writeVar(id, sourceVal, block);
     }
   }
 };
@@ -633,15 +598,38 @@ LLVM.prototype.visitassign = function visitassign({source, target}, block) {
 LLVM.prototype.visitdelete = function visitdelete({exp}, block) {
   const delPtr = this.visitExpression(exp, block);
   const cast = this.getRegister('i8*');
-  block.ll.push(new BitCastInstruction(block, cast, delPtr));
-  block.ll.push(new CallInstruction(block, 'void', new Register('void', '@free'), cast));
+  block.ll.push(new I.BitCastInstruction(block, cast, delPtr));
+  block.ll.push(new I.CallInstruction(block, 'void', new Register('void', '@free'), cast));
+};
+
+LLVM.prototype.upcastNullArguments = function upcastNullArguments(id, argList) {
+  const paramList = this._symbols.functions[id].parameterList;
+  for (let i = 0; i < argList.length; i++) {
+    if (argList[i].type === 'null') {
+      argList[i].type = LLVM.typeString(paramList[i]);
+    }
+  }
+  return argList;
 };
 
 LLVM.prototype.visitinvocation = function visitinvocation({id, args}, block) {
   const { return_type } = this._symbols.functions[id];
   const type = LLVM.typeString(return_type);
-  const argRegisters = args.map(arg => this.visitExpression(arg, block));
-  block.ll.push(new CallInstruction(block, type, LLVM.functionName(id), ...argRegisters));
+  let argRegisters = this.upcastNullArguments(id, args.map(arg => this.visitExpression(arg, block)));
+  /* extend any bool arguments that are i1's */
+  argRegisters = argRegisters.map(arg => {
+    if (arg.type === 'i1') {
+      if (arg instanceof Immediate) {
+        return new Immediate('i32', arg.value);
+      } else {
+        let extendedVal = this.getRegister('i32');
+        block.ll.push(new I.ZExtInstruction(block, extendedVal, arg));
+        return extendedVal;
+      }
+    }
+    return arg;
+  });
+  block.ll.push(new I.CallInstruction(block, type, LLVM.functionName(id), ...argRegisters));
 };
 
 LLVM.prototype.visitExpression = function visitExpression(expression, block) {
@@ -655,11 +643,10 @@ LLVM.prototype.visitExpression = function visitExpression(expression, block) {
 };
 
 LLVM.prototype.visitinvocationE = function visitinvocationE({id, args}, block) {
-  const { parameters, return_type } = this._symbols.functions[id];
+  const { return_type } = this._symbols.functions[id];
   const dest = this.getRegister(LLVM.typeString(return_type));
-  const argRegisters = args.map((arg, i) =>
-    (this.visitExpression(arg, block)));
-  block.ll.push(new CallInstruction(block, dest, LLVM.functionName(id), ...argRegisters));
+  const argRegisters = this.upcastNullArguments(id, args.map(arg => this.visitExpression(arg, block)));
+  block.ll.push(new I.CallInstruction(block, dest, LLVM.functionName(id), ...argRegisters));
   return dest;
 };
 
@@ -668,9 +655,9 @@ LLVM.prototype.visitdot = function visitdot({left, id}, block) {
   const struct = leftVal.type.split('.')[1].slice(0, -1);
   const {type, index} = this._symbols.structs[struct][id];
   const ptrVal = this.getRegister(`${leftVal.type}*`);
-  block.ll.push(new GEPInstruction(block, ptrVal, leftVal, index));
+  block.ll.push(new I.GEPInstruction(block, ptrVal, leftVal, index));
   const dest = this.getRegister(LLVM.typeString(type));
-  block.ll.push(new LoadInstruction(block, dest, ptrVal));
+  block.ll.push(new I.LoadInstruction(block, dest, ptrVal));
   return dest;
 };
 
@@ -678,11 +665,11 @@ LLVM.prototype.visitunary = function visitunary({operator, operand}, block) {
   const val = this.visitExpression(operand, block);
   if (operator === '-') {
     const dest = this.getRegister('i32');
-    block.ll.push(new MulInstruction(block, dest, val, -1));
+    block.ll.push(new I.MulInstruction(block, dest, val, new Immediate(val.type, -1)));
     return dest;
   } else {
     const dest = this.getRegister(val.type);
-    block.ll.push(new XorInstruction(block, dest, val, new Immediate(val.type, -1)));
+    block.ll.push(new I.XorInstruction(block, dest, val, new Immediate(val.type, -1)));
     return dest;
   }
 };
@@ -694,55 +681,55 @@ LLVM.prototype.visitbinary = function visitbinary({operator, lft, rht}, block) {
   switch (operator) {
     case '*':
       dest = this.getRegister('i32');
-      block.ll.push(new MulInstruction(block, dest, lftVal, rhtVal));
+      block.ll.push(new I.MulInstruction(block, dest, lftVal, rhtVal));
       break;
     case '/':
       dest = this.getRegister('i32');
-      block.ll.push(new SDivInstruction(block, dest, lftVal, rhtVal));
+      block.ll.push(new I.SDivInstruction(block, dest, lftVal, rhtVal));
       break;
     case '+':
       dest = this.getRegister('i32');
-      block.ll.push(new AddInstruction(block, dest, lftVal, rhtVal));
+      block.ll.push(new I.AddInstruction(block, dest, lftVal, rhtVal));
       break;
     case '-':
       dest = this.getRegister('i32');
-      block.ll.push(new SubInstruction(block, dest, lftVal, rhtVal));
+      block.ll.push(new I.SubInstruction(block, dest, lftVal, rhtVal));
       break;
     case '<':
       dest = this.getRegister('i1');
-      block.ll.push(new CmpInstruction(block, dest, 'slt', lftVal, rhtVal));
+      block.ll.push(new I.CmpInstruction(block, dest, 'slt', lftVal, rhtVal));
       //block.ll.push(new ZExtInstruction(dest, temp));
       break;
     case '<=':
       dest = this.getRegister('i1');
-      block.ll.push(new CmpInstruction(block, dest, 'sle', lftVal, rhtVal));
+      block.ll.push(new I.CmpInstruction(block, dest, 'sle', lftVal, rhtVal));
       //block.ll.push(new ZExtInstruction(dest, temp));
       break;
     case '>':
       dest = this.getRegister('i1');
-      block.ll.push(new CmpInstruction(block, dest, 'sgt', lftVal, rhtVal));
+      block.ll.push(new I.CmpInstruction(block, dest, 'sgt', lftVal, rhtVal));
       //block.ll.push(new ZExtInstruction(dest, temp));
       break;
     case '>=':
       dest = this.getRegister('i1');
-      block.ll.push(new CmpInstruction(block, dest, 'sge', lftVal, rhtVal));
+      block.ll.push(new I.CmpInstruction(block, dest, 'sge', lftVal, rhtVal));
       //block.ll.push(new ZExtInstruction(dest, temp));
       break;
     case '&&':
       dest = this.getRegister(lftVal.type);
-      block.ll.push(new AndInstruction(block, dest, lftVal, rhtVal));
+      block.ll.push(new I.AndInstruction(block, dest, lftVal, rhtVal));
       break;
     case '||':
       dest = this.getRegister(lftVal.type);
-      block.ll.push(new OrInstruction(block, dest, lftVal, rhtVal));
+      block.ll.push(new I.OrInstruction(block, dest, lftVal, rhtVal));
       break;
     case '==':
       dest = this.getRegister('i1');
-      block.ll.push(new CmpInstruction(block, dest, 'eq', lftVal, rhtVal));
+      block.ll.push(new I.CmpInstruction(block, dest, 'eq', lftVal, rhtVal));
       break;
     case '!=':
       dest = this.getRegister('i1');
-      block.ll.push(new CmpInstruction(block, dest, 'ne', lftVal, rhtVal));
+      block.ll.push(new I.CmpInstruction(block, dest, 'ne', lftVal, rhtVal));
       break;
   }
   return dest;
@@ -753,33 +740,32 @@ LLVM.prototype.visitid = function visitid({id}, block) {
   const { globals } = this._symbols;
   if (this.stackBased) {
     let ty, pointer;
-    if (ty = declarations.find(decl => decl.id === id)) {
+    if (ty= declarations.find(decl => decl.id === id)) { //eslint-disable-line no-cond-assign
       ty = LLVM.typeString(ty.type);
-      pointer = LLVM.variableStackName(id);
-    } else if (ty = parameters.find(param => param.id === id)) {
+      pointer = this.getVariable(id);
+    } else if (ty = parameters.find(param => param.id === id)) { //eslint-disable-line no-cond-assign
       ty = LLVM.typeString(ty.type);
-      pointer = LLVM.parameterStackName(id);
+      pointer = this.getStackParameter(id);
     } else if (id in globals) {
       ty = LLVM.typeString(globals[id]);
-      pointer = LLVM.globalName(id);
+      pointer = this.getGlobal(id);
     }
     const dest = this.getRegister(ty);
-    block.ll.push(new LoadInstruction(block, dest, pointer));
+    block.ll.push(new I.LoadInstruction(block, dest, pointer));
     return dest;
   } else {
     if (this.isLocalVar(id)) {
       return this.readVar(id, block);
     } else {
-      const ty = LLVM.typeString(globals[id]);
-      const pointer = LLVM.globalName(id);
-      const dest = this.getRegister(ty);
-      block.ll.push(new LoadInstruction(block, dest, pointer));
+      const pointer = this.getGlobal(id);
+      const dest = this.getRegister(pointer.type);
+      block.ll.push(new I.LoadInstruction(block, dest, pointer));
       return dest;
     }
   }
 };
 
-LLVM.prototype.visitnum = function visitnum({value}, block) {
+LLVM.prototype.visitnum = function visitnum({value}) {
   return new Immediate('i32', value);
 };
 
@@ -795,14 +781,14 @@ LLVM.prototype.visitnew = function visitnew({id}, block) {
   const voidPtr = this.getRegister('i8*');
   const dest = this.getRegister(LLVM.typeString(id));
   const len = this._symbols.structs[id].length;
-  block.ll.push(new CallInstruction(block, voidPtr, new Register('i8*', '@malloc'), new Immediate('i32', 8*len)));
-  block.ll.push(new BitCastInstruction(block, dest, voidPtr));
+  block.ll.push(new I.CallInstruction(block, voidPtr, new Register('i8*', '@malloc'), new Immediate('i32', 8*len)));
+  block.ll.push(new I.BitCastInstruction(block, dest, voidPtr));
   return dest;
 };
 
 LLVM.prototype.visitnull = function visitnull() {
   // TODO: how the fuck to handle this. Update the type higher up in assignment / comparisons?
-  return new Immediate('null', null);
+  return new Immediate('null', 'null');
 };
 
 module.exports = { CFG, LLVM };

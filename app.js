@@ -1,11 +1,11 @@
-const fs = require('fs'),
-  util = require('util');
+const fs = require('fs');
 const app = require('commander');
 const Parse = require('./src/js/Parse');
 const Static = require('./src/js/Static');
 const Generate = require('./src/js/Generate');
 const AstToString = require('./src/js/AstToString');
 const { CFG, LLVM } = require('./src/js/Generate');
+const Optimize = require('./src/js/Optimize');
 
 /* add options to a command */
 function glue(opts) {
@@ -24,7 +24,7 @@ function withOutfile(output, cb) {
       if (err) {
         console.error('ERROR: could not open output file for writing.');
         console.error(err);
-        process.exit(1)
+        process.exit(1);
       }
       cb(null, fd);
     });
@@ -77,7 +77,7 @@ staticAnalysis.action((astfile, opts) => {
   const ast = JSON.parse(fs.readFileSync(astfile));
   console.log('Performing static analysis...');
   let typeErrs = (new Static.TypeChecker(opts)).check(ast);
-  console.log('Type checking results:')
+  console.log('Type checking results:');
   if (!typeErrs.length) {
     console.log('ALL TESTS PASSED');
   } else {
@@ -109,7 +109,7 @@ generateCFG.action((astfile, opts) => {
   const CFG = new Generate.CFG(opts);
   const cfgs = CFG.generate(ast);
   for (const cfg of cfgs) {
-    console.log(`FUNCTION ${cfg.id}()`)
+    console.log(`FUNCTION ${cfg.id}()`);
     for (const block of cfg.blockList) {
       console.log(`${block.label}:`);
       for (const statement of block.body) {
@@ -126,11 +126,12 @@ const generateLLVM = app.command('llvm <ast>').description('Generate a Control F
 const generateLLVMOptions =  [
   ['--stack', 'Generate stack-based code'],
   ['--llvm', 'Generate LLVM code'],
+  ['--old-llvm', 'Target old LLVM syntax'],
 ];
 generateLLVM.glue(universalOptions);
 generateLLVM.glue(generateLLVMOptions);
-generateLLVM.action((cfgfile, opts) => {
-  const ast = JSON.parse(fs.readFileSync(cfgfile));
+generateLLVM.action(() => {
+  //const ast = JSON.parse(fs.readFileSync(cfgfile));
   // TODO: deserialize CFG
   /*console.log('Generating CFG...');
   const CFG = new Generate.CFG(opts);
@@ -148,13 +149,22 @@ generateLLVM.action((cfgfile, opts) => {
   //console.log(util.inspect(cfg));
 });
 
+const optimizationOptions = [
+  ['-O, --no-optimization', 'Do not perform any optimization'],
+  ['--no-sscp', 'Do not perform Sparse Simple Constant Propagation (SSCP)'],
+  ['--no-uce', 'Do not perform Unused Code Elimination (SSA Unused Result)'],
+  ['--no-cfg-simplification', 'Do not perform CFG Simplification'],
+];
+
 const all = app.command('all <mini>');
 all
   .glue(parseOptions)
   .glue(staticAnalysisOptions)
-  .glue(generateLLVMOptions);
+  .glue(generateLLVMOptions)
+  .glue(optimizationOptions);
 all.action((mini, opts) => {
-  console.log('Parsing...')
+  console.log(`Compiling file '${mini}'`);
+  console.log('Parsing...');
   const ast = Parse.parseFile(mini);
   if (!ast) {
     console.error('ERROR: failed to parse file, aborting');
@@ -190,14 +200,33 @@ all.action((mini, opts) => {
   if (opts.llvm || opts.parent.llvm) {
     console.log('Building Control Flow Graph');
     const cfgGenerator = new CFG(opts);
-    let cfgs = cfgGenerator.generate(ast);
+    const cfgs = cfgGenerator.generate(ast);
 
     console.log(`Generating ${(opts.stack || opts.parent.stack) ? 'stack-based' : 'register-based'} LLVM assembly`);
     const llvmGenerator = new LLVM(opts);
-    let cfgsWithLLVM = llvmGenerator.generate(cfgs);
+    const cfgsWithLLVM = llvmGenerator.generate(cfgs);
+
+    if (opts.optimization || opts.parent.optimization) {
+      console.log('Performing optimizations...');
+      for (const func of cfgsWithLLVM.functions) {
+        if (opts.sscp || opts.parent.sscp) {
+          Optimize.SSCP(func);
+        }
+        if (opts.uce || opts.parent.uce) {
+          Optimize.SSAUnusedResult(func);
+        }
+        if (opts.cfgSimplification || opts.parent.cfgSimplification) {
+          Optimize.CFGCleanup(func);
+          if (opts.uce || opts.parent.uce) {
+            Optimize.SSAUnusedResult(func);
+            Optimize.CFGCleanup(func);
+          }
+        }
+      }
+    }
 
     if (opts.parent.write) {
-      console.log('Writing output');
+      console.log(`Writing output to ${opts.parent.output ? opts.parent.output : 'STDOUT'}`);
       withOutfile(opts.parent.output, (err, file) => fs.writeSync(file, `${cfgsWithLLVM}`));
     }
   }
