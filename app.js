@@ -6,6 +6,7 @@ const Generate = require('./src/js/Generate');
 const AstToString = require('./src/js/AstToString');
 const { CFG, LLVM } = require('./src/js/Generate');
 const Optimize = require('./src/js/Optimize');
+const ARM = require('./src/js/ARM');
 
 /* add options to a command */
 function glue(opts) {
@@ -154,6 +155,7 @@ const optimizationOptions = [
   ['--no-sscp', 'Do not perform Sparse Simple Constant Propagation (SSCP)'],
   ['--no-uce', 'Do not perform Unused Code Elimination (SSA Unused Result)'],
   ['--no-cfg-simplification', 'Do not perform CFG Simplification'],
+  ['--arm', 'Generate ARM assembly'],
 ];
 
 const all = app.command('all <mini>');
@@ -197,7 +199,7 @@ all.action((mini, opts) => {
     return;
   }
 
-  if (opts.llvm || opts.parent.llvm) {
+  if (opts.llvm || opts.parent.llvm || opts.arm || opts.parent.arm) {
     console.log('Building Control Flow Graph');
     const cfgGenerator = new CFG(opts);
     const cfgs = cfgGenerator.generate(ast);
@@ -211,6 +213,7 @@ all.action((mini, opts) => {
       for (const func of cfgsWithLLVM.functions) {
         if (opts.sscp || opts.parent.sscp) {
           Optimize.SSCP(func);
+          Optimize.SSCP(func);
         }
         if (opts.uce || opts.parent.uce) {
           Optimize.SSAUnusedResult(func);
@@ -223,6 +226,11 @@ all.action((mini, opts) => {
           }
         }
       }
+    }
+
+    if (opts.arm || opts.parent.arm) {
+      console.log('Translating to ARM assembly');
+      ARM.translateAll(cfgsWithLLVM);
     }
 
     if (opts.parent.write) {

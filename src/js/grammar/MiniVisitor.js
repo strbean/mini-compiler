@@ -244,7 +244,7 @@ MiniVisitor.prototype.visitRBlock = function(ctx) {
 
 // Visit a parse tree produced by MiniParser#rStatementList.
 MiniVisitor.prototype.visitRStatementList = function(ctx) {
-  return this.visitChildren(ctx);
+  return ctx.children ? this.visitChildren(ctx) : [];
 };
 
 

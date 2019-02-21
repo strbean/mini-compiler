@@ -8,11 +8,14 @@ function mergeBlocks(parent, child) {
 
   for (const succ of child.successors) {
     succ.predecessors = succ.predecessors.map(pred => pred === child ? parent : pred);
+    for (const phi of succ.phis) {
+      phi.incoming.find(({label}) => label === child.label).label = parent.label;
+    }
   }
 
   parent.ll = parent.ll.filter(instr => !(instr instanceof I.BranchInstruction));
   parent.ll = parent.ll.concat(child.ll);
-  parent.phis.concat(child.phis);
+  //parent.phis.concat(child.phis);
 }
 
 /*
@@ -47,6 +50,21 @@ function hasCodependentPhis(block, otherBlocks) {
 */
 
 function cleanup(cfg) {
+  // dead blocks
+  for (let i = 0; i < cfg.blockList.length; i++) {
+    const block = cfg.blockList[i];
+    if (block.special) {
+      continue;
+    }
+    if (!block.predecessors.length) {
+      for (const child of block.successors) {
+        child.predecessors = child.predecessors.filter(val => val !== block);
+      }
+      cfg.blockList.splice(i, 1);
+      i--;
+    }
+  }
+
   // straight through
   for (let i = 0; i < cfg.blockList.length; i++) {
     const block = cfg.blockList[i];

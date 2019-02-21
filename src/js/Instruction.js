@@ -181,7 +181,7 @@ class CmpInstruction extends Instruction {
         op2 = registerValues[`${op1}`];
       }
     }
-    if (op1 instanceof Immediate && op2 instanceof Immediate) {
+    if (!isNaN(op1) && !isNaN(op2)) {
       let val1 = op1, val2 = op2;
       switch (cond) {
         case 'eq':
@@ -429,6 +429,21 @@ class CastInstruction extends Instruction {
     value.used.push(this);
   }
 
+  computeValue(fn, registerValues) {
+    let {op} = this;
+    if (op instanceof Immediate) {
+      op = op.value;
+    }
+    if (registerValues) {
+      if (op instanceof Register) {
+        op = registerValues[`${op}`];
+      }
+    }
+    if (typeof op === 'number') {
+      return fn(op);
+    }
+  }
+
   toString() {
     return `${this.dest} = ${this.name} ${this.op.type} ${this.op} to ${this.dest.type}`;
   }
@@ -438,17 +453,29 @@ class BitCastInstruction extends CastInstruction {
   constructor(block, dest, value) {
     super(block, 'bitcast', dest, value);
   }
+
+  value(registerValues) {
+    return this.computeValue((a) => a, registerValues);
+  }
 }
 
 class TruncInstruction extends CastInstruction {
   constructor(block, dest, value) {
     super(block, 'trunc', dest, value);
   }
+
+  value(registerValues) {
+    return this.computeValue((a) => a & 1, registerValues);
+  }
 }
 
 class ZExtInstruction extends CastInstruction {
   constructor(block, dest, value) {
     super(block, 'zext', dest, value);
+  }
+
+  value(registerValues) {
+    return this.computeValue((a) => a, registerValues);
   }
 }
 

@@ -35,7 +35,7 @@ function cleanBlockList(blockList) {
   }
 
   /* relabel blocks */
-  blockCount = 0;
+  //blockCount = 0;
   for (const block of blockList) {
     block.label = `LU${blockCount++}`;
   }
@@ -85,10 +85,13 @@ function CFG(opts) {
 
 CFG.prototype.generate = function generate(ast) {
   const symbols = _util.buildSymbolDicts(ast);
+  let functions = ast.functions.map(func => this.visitFunction(func));
+  blockCount = 0;
+  functions.map(func => func.blockList = cleanBlockList(func.blockList));
   return {
     types: ast.types,
     declarations: ast.declarations,
-    functions: ast.functions.map(func => this.visitFunction(func)),
+    functions,
     symbols
   };
 };
@@ -110,7 +113,7 @@ CFG.prototype.visitFunction = function visitFunction({ id, parameters, declarati
   cfg.entry.successors.push(start);
   end.successors.push(cfg.exit);
   cfg.blockList.push(cfg.exit);
-  this._cfg.blockList = cleanBlockList(this._cfg.blockList);
+  //this._cfg.blockList = cleanBlockList(this._cfg.blockList);
   return cfg;
 };
 
@@ -370,12 +373,13 @@ LLVM.prototype.generate = function generate({types, declarations, functions, sym
   let opts = this.opts;
   return {
     types: this.generateTypes(types),
-    declarations: this.generateDeclarations(declarations),
+    llvmDeclarations: this.generateDeclarations(declarations),
+    declarations,
     functions: this.generateFunctions(functions),
     toString: function toString() {
       return `target triple="${opts.parent.targetArchitecture}"\n`
         + `${this.types.join('\n')}\n\n`
-        + `${this.declarations.join('\n')}\n\n`
+        + `${this.llvmDeclarations.join('\n')}\n\n`
         + `${this.functions.join('\n')}\n\n`
         + LLVM.imports;
     }
@@ -781,7 +785,7 @@ LLVM.prototype.visitnew = function visitnew({id}, block) {
   const voidPtr = this.getRegister('i8*');
   const dest = this.getRegister(LLVM.typeString(id));
   const len = this._symbols.structs[id].length;
-  block.ll.push(new I.CallInstruction(block, voidPtr, new Register('i8*', '@malloc'), new Immediate('i32', 8*len)));
+  block.ll.push(new I.CallInstruction(block, voidPtr, new Register('i8*', '@malloc'), new Immediate('i32', 4*len)));
   block.ll.push(new I.BitCastInstruction(block, dest, voidPtr));
   return dest;
 };

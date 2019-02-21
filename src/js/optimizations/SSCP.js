@@ -69,7 +69,6 @@ function value(instruction, registerValues) {
     return TOP;
   } else {
     if (!vals.length) {
-      // TODO: is this right?
       return BOTTOM;
     }
 
@@ -108,6 +107,28 @@ function rewrite(cfg, allRegisters, registerValues) {
     const val = registerValues[`${register}`];
     if (isFinite(val)) {
       rewriteRegister(register, val);
+    }
+  }
+}
+
+function rewriteCBranches(cfg) {
+  for (const block of cfg.blockList) {
+    for (const instr of block.ll) {
+      if (instr instanceof CBranchInstruction) {
+        const { cond, iftrue, iffalse } = instr;
+        if (cond instanceof Immediate) {
+          block.ll = block.ll.filter(val => val !== instr);
+          if (cond.value !== 0) {
+            block.ll.push(new BranchInstruction(block, iftrue));
+            block.successors = [iftrue];
+            iffalse.predecessors = iffalse.predecessors.filter(val => val !== block);
+          } else {
+            block.ll.push(new BranchInstruction(block, iffalse));
+            block.successors = [iffalse];
+            iftrue.predecessors = iftrue.predecessors.filter(val => val !== block);
+          }
+        }
+      }
     }
   }
 }
@@ -153,6 +174,7 @@ function SSCP(cfg) {
     }
   }
   rewrite(cfg, allRegisters, registerValues);
+  rewriteCBranches(cfg);
 }
 
 module.exports = SSCP;
