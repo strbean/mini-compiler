@@ -17,7 +17,7 @@ Run `npm install` in root directory of project.
 Usage
 -----
 
-For coomplete usage information, run `node ./src/js/app.js --help`
+For complete usage information, run `node ./src/js/app.js --help`
 
 To compile a mini program to ARM assembly with optimization, run `node app.js all --arm -o <outfile> <infile>`
 
